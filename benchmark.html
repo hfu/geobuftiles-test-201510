@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>geobuf tiles evaluation</title>
+<meta name="viewport"
+  content="initial-scale=1.0, maximum-scale=1.0"/>
+<link rel="stylesheet" href="//cdn.leafletjs.com/leaflet-0.7.3/leaflet.css"/>
+<script src="//cdn.leafletjs.com/leaflet-0.7.3/leaflet.js"></script>
+<script src="leaflet-hash.js"></script>
+<script src="TileLayer.GeoJSON.js"></script>
+<script src="corslite.js"></script>
+<script src="pbf.js"></script>
+<script src="geobuf.js"></script>
+<style>
+body {padding: 0; margin: 0}
+html, body, #mapdiv {height: 100%; width: 100%;}
+.leaflet-container {background: #fff;}
+</style>
+</head>
+<body>
+<div id="mapdiv">
+<script>
+var std = L.tileLayer(
+  'http://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+    attribution: "地理院タイル（標準地図）"
+  });
+
+var map = L.map('mapdiv', {
+  center: [35.3622222, 138.7313889], zoom: 5,
+  layers: [std]});
+
+var hash = L.hash(map);
+L.control.layers({'地理院タイル（標準地図）': std}).addTo(map);
+
+var counts = {geojson: 0, pbf: 0};
+var times = {geojson: 0, pbf: 0};
+var queue = [];
+var n_progress = 0;
+var load = function(zxy, ext) {
+  n_progress += 1
+  var url = 'experimental_fgd/' + zxy.join('/') + '.' + ext;
+  var req = new XMLHttpRequest();
+  req.open('GET', url, true);
+  if(ext == 'pbf') {req.responseType = 'arraybuffer';}
+  req.start_time = Date.now();
+  req.ext = ext;
+  req.zxy = zxy;
+  req.url = url;
+  req.onload = function(evt) {
+    if(req.response) {
+      var geojson = null;
+      switch(req.ext) {
+        case 'pbf':
+          geojson = geobuf.
+            decode(new Pbf(new Uint8Array(req.response)));
+          break;
+        case 'geojson':
+          geojson = JSON.parse(req.response);
+          break;
+      }
+      counts[req.ext] += 1;
+      times[req.ext] += Date.now() - req.start_time;
+      console.log(counts.pbf + '(' + n_progress + '): ' +
+        Math.round(times.geojson / counts.geojson) + 'ms[' +
+        counts.geojson + ' GeoJSON]/' +
+        Math.round(times.pbf / counts.pbf) + 'ms[' +
+        counts.pbf + ' geobuf]');
+      delete geojson;
+      n_progress -= 1;
+    }
+  }
+  req.send(null);
+};
+
+var load_or_wait = function() {
+  if(n_progress < 10) {
+    if(queue.length == 0) {
+      console.log('complete.');
+      return;
+    }
+    var r = queue.pop();
+    load(r[0], r[1]);
+  }
+  setTimeout(load_or_wait, Math.random() * 100);
+}
+
+corslite('./list.json', function(err, resp) {
+  var list = JSON.parse(resp.response);
+  var start_time = Date.now();
+  for(var i = 0; i < list.length; i++) {
+    queue.push([list[i], 'geojson']);
+    queue.push([list[i], 'pbf']);
+  }
+  load_or_wait();
+}, false);
+</script>
+</body>
+</html>
