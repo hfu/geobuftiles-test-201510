@@ -37,6 +37,14 @@ var counts = {geojson: 0, pbf: 0};
 var times = {geojson: 0, pbf: 0};
 var queue = [];
 var n_progress = 0;
+var log = function() {
+  console.log(counts.pbf + '(' + n_progress + '): ' +
+    Math.round(times.geojson / counts.geojson) + 'ms[' +
+    counts.geojson + ' GeoJSON]/' +
+    Math.round(times.pbf / counts.pbf) + 'ms[' +
+    counts.pbf + ' geobuf]');
+};
+
 var load = function(zxy, ext) {
   n_progress += 1
   var url = 'experimental_fgd/' + zxy.join('/') + '.' + ext;
@@ -61,11 +69,7 @@ var load = function(zxy, ext) {
       }
       counts[req.ext] += 1;
       times[req.ext] += Date.now() - req.start_time;
-      console.log(counts.pbf + '(' + n_progress + '): ' +
-        Math.round(times.geojson / counts.geojson) + 'ms[' +
-        counts.geojson + ' GeoJSON]/' +
-        Math.round(times.pbf / counts.pbf) + 'ms[' +
-        counts.pbf + ' geobuf]');
+      if(req.ext == 'pbf' && counts[req.ext] % 100 == 0) log();
       delete geojson;
       n_progress -= 1;
     }
@@ -73,16 +77,27 @@ var load = function(zxy, ext) {
   req.send(null);
 };
 
+var complete = function() {
+  console.log('complete.');
+  log();
+}
+
 var load_or_wait = function() {
-  if(n_progress < 10) {
+  if(n_progress > 10) {
+    setTimeout(load_or_wait, Math.random() * 10);
+  } else {
     if(queue.length == 0) {
-      console.log('complete.');
-      return;
+      complete();
+    } else {
+      var r = queue.pop();
+      if(r[0][2] % 7 == 0) {
+        load(r[0], r[1]);
+        setTimeout(load_or_wait, Math.random() * 10);
+      } else {
+        load_or_wait();
+      }
     }
-    var r = queue.pop();
-    load(r[0], r[1]);
   }
-  setTimeout(load_or_wait, Math.random() * 100);
 }
 
 corslite('./list.json', function(err, resp) {
